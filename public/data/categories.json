@@ -1,0 +1,32 @@
+[
+ {
+  "id": "com",
+  "label": "Commercio e ristorazione",
+  "color": "#B4410F"
+ },
+ {
+  "id": "ind",
+  "label": "Industria e logistica",
+  "color": "#4B2E83"
+ },
+ {
+  "id": "art",
+  "label": "Artigianato ed edilizia",
+  "color": "#0F6E6E"
+ },
+ {
+  "id": "uff",
+  "label": "Uffici e terziario",
+  "color": "#24408E"
+ },
+ {
+  "id": "pub",
+  "label": "Servizi pubblici e sport",
+  "color": "#8B1E5B"
+ },
+ {
+  "id": "agr",
+  "label": "Agricoltura",
+  "color": "#3B6E12"
+ }
+]
