@@ -28,5 +28,10 @@
   "id": "agr",
   "label": "Agricoltura",
   "color": "#3B6E12"
+ },
+ {
+  "id": "res",
+  "label": "Residenziale",
+  "color": "#B08D57"
  }
 ]
