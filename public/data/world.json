@@ -181,6 +181,7 @@
  ],
  "minZoom": {
   "streets": 0.28,
-  "lotNumbers": 0.55
+  "lotNumbers": 0.55,
+  "activities": 0.9
  }
 }

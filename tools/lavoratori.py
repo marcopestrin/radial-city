@@ -11,74 +11,73 @@ import math, re
 
 CENTRE = {'Centro', 'La Cerchia'}       # nel centro gli edifici generici hanno più piani
 
-# (espressione sul nome, categoria o None, piani, m² per addetto, addetti fissi, settore)
+# (espressione sul nome, categoria o None, piani, m² per addetto, addetti fissi)
 #   piani: numero, oppure 'h' = altezza scritta nel nome / 3,5 m
-#   settore: privato | pubblico (dipendenti statali o di enti pubblici)
 RULES = [
     # ---------------------------------------------------------------- niente addetti fissi
     (r'^(Silo|Serbatoio|Tettoia|Pensilina|Vasca|Condensatori|Fienile|Fienili|Rimessa|Ricovero attrezzi|Essiccatoio|'
      r'Deposito (sementi|foraggi)|Campo|Campi |Tribuna|Spogliatoi|Skatepark|Pista|Piazza|Piazzetta|Sagrato|Campanile|'
      r'Cappella|Lago di cava|Orti|Vigneti|Campi della cascina|Area di allevamento|Palestra all.aperto|Parcheggio (autobetoniere|autocisterne|mezzi pesanti)|'
-     r'Piazzale|Dehors|Giardino pensile|Chiostro)', None, 1, None, 0, '—'),
+     r'Piazzale|Dehors|Giardino pensile|Chiostro)', None, 1, None, 0),
     # ---------------------------------------------------------------- sanità (pubblica)
     (r'^(Ospedale|Pronto soccorso|Day hospital|Neurologia|Oncologia|Ematologia|Neonatologia|Ortopedia|Cardiologia|'
-     r'Centro cardiologico|Amministrazione ospedale|Accesso ambulanze)', 'pub', 4, 30, None, 'pubblico'),
-    (r'^(Poliambulatorio|Laboratorio analisi|Studio pediatrico|Centro oculistico|Centro analisi)', None, 2, 40, None, 'pubblico'),
-    (r'^Casa di riposo', None, 3, 60, None, 'pubblico'),
+     r'Centro cardiologico|Amministrazione ospedale|Accesso ambulanze)', 'pub', 4, 30, None),
+    (r'^(Poliambulatorio|Laboratorio analisi|Studio pediatrico|Centro oculistico|Centro analisi)', None, 2, 40, None),
+    (r'^Casa di riposo', None, 3, 60, None),
     # ---------------------------------------------------------------- istruzione (pubblica)
-    (r'^(Università|Facoltà|Dipartimento|Laboratori universitari|Biblioteca universitaria)', None, 3, 60, None, 'pubblico'),
-    (r'^(Scuola|Liceo|Istituto (tecnico|professionale)|Polo scolastico)', 'pub', 2, 80, None, 'pubblico'),
+    (r'^(Università|Facoltà|Dipartimento|Laboratori universitari|Biblioteca universitaria)', None, 3, 60, None),
+    (r'^(Scuola|Liceo|Istituto (tecnico|professionale)|Polo scolastico)', 'pub', 2, 80, None),
     # ---------------------------------------------------------------- amministrazione, sicurezza, dogana (pubblica)
     (r'^(Prefettura|Questura|Tribunale|INPS|Agenzia delle entrate|Catasto|Anagrafe|Municipio|Palazzo (comunale|della Regione)|'
      r'Uffici (regionali|comunali|statali|doganali|ENAC|della Motorizzazione)|Centro per l.impiego|Polizia|Commissariato|'
-     r'Caserma|Guardia di Finanza|Ispettorato|Ufficio postale|Sede ASL)', None, 3, 20, None, 'pubblico'),
-    (r'^Vigili del fuoco', None, 1, None, 45, 'pubblico'),
-    (r'^Castello di manovra', None, 1, None, 0, 'pubblico'),
+     r'Caserma|Guardia di Finanza|Ispettorato|Ufficio postale|Sede ASL)', None, 3, 20, None),
+    (r'^Vigili del fuoco', None, 1, None, 45),
+    (r'^Castello di manovra', None, 1, None, 0),
     # ---------------------------------------------------------------- trasporti
-    (r'^Terminal passeggeri', None, 2, 25, None, 'privato'),
-    (r'^(Stazione ferroviaria)', None, 2, 40, None, 'pubblico'),
-    (r'^Stazione autobus', None, 1, None, 20, 'pubblico'),
-    (r'^(Torre di controllo|Uffici aeroportuali)', None, 3, 20, None, 'pubblico'),
+    (r'^Terminal passeggeri', None, 2, 25, None),
+    (r'^(Stazione ferroviaria)', None, 2, 40, None),
+    (r'^Stazione autobus', None, 1, None, 20),
+    (r'^(Torre di controllo|Uffici aeroportuali)', None, 3, 20, None),
     # ---------------------------------------------------------------- impianti
-    (r'^Data center', None, 1, 250, None, 'privato'),
-    (r'^Centrale elettrica', None, 1, None, 6, 'privato'),
-    (r'^(Depuratore|Acquedotto)', None, 1, None, 8, 'pubblico'),
-    (r'^Discarica', None, 1, None, 12, 'pubblico'),
-    (r'^Serbatoio acqua', None, 1, None, 0, 'pubblico'),
+    (r'^Data center', None, 1, 250, None),
+    (r'^Centrale elettrica', None, 1, None, 6),
+    (r'^(Depuratore|Acquedotto)', None, 1, None, 8),
+    (r'^Discarica', None, 1, None, 12),
+    (r'^Serbatoio acqua', None, 1, None, 0),
     # ---------------------------------------------------------------- uffici con l'altezza nel nome
-    (r'(Torre per uffici|Grattacielo|^Uffici) .*?(\d+) m', None, 'h', 15, None, 'privato'),
-    (r'^Hotel.*?(\d+) m', None, 'h', 150, None, 'privato'),
-    (r'^(Cava|Piazzale dei laterizi)', None, 1, None, 25, 'privato'),
+    (r'(Torre per uffici|Grattacielo|^Uffici) .*?(\d+) m', None, 'h', 15, None),
+    (r'^Hotel.*?(\d+) m', None, 'h', 150, None),
+    (r'^(Cava|Piazzale dei laterizi)', None, 1, None, 25),
     # ---------------------------------------------------------------- commercio
-    (r'^(Distributore|Stazione di servizio)', None, 1, None, 2, 'privato'),
-    (r'^Parcheggio multipiano', None, 5, None, 3, 'privato'),
-    (r'^Parcheggio', None, 1, None, 2, 'privato'),
-    (r'^(Grande magazzino|Galleria commerciale|Centro commerciale)', None, 4, 40, None, 'privato'),
-    (r'^Cinema multisala', None, 2, 120, None, 'privato'),
-    (r'^(Supermercato|Discount|Bricolage|Mobili|Concessionaria|Abbigliamento outlet|Ipermercato|Giardinaggio|Elettrodomestici)', 'com', 1, 60, None, 'privato'),
-    (r'^(Padiglione fieristico|Fiera)', None, 1, 200, None, 'privato'),
-    (r'^(Cinema|Sala bowling|Parco acquatico)', None, 1, 120, None, 'privato'),
-    (r'^(Bar|Ristorante|Pizzeria|Trattoria|Osteria|Gelateria|Pasticceria|Caff|Chiosco|Fast food|Sushi|Wine bar|Pub|Tavola calda|Piadineria|Enoteca)', 'com', 1, 25, None, 'privato'),
-    (r'^Agriturismo', None, 1, None, 8, 'privato'),
-    (r'^Hotel', None, 3, 150, None, 'privato'),
+    (r'^(Distributore|Stazione di servizio)', None, 1, None, 2),
+    (r'^Parcheggio multipiano', None, 5, None, 3),
+    (r'^Parcheggio', None, 1, None, 2),
+    (r'^(Grande magazzino|Galleria commerciale|Centro commerciale)', None, 4, 40, None),
+    (r'^Cinema multisala', None, 2, 120, None),
+    (r'^(Supermercato|Discount|Bricolage|Mobili|Concessionaria|Abbigliamento outlet|Ipermercato|Giardinaggio|Elettrodomestici)', 'com', 1, 60, None),
+    (r'^(Padiglione fieristico|Fiera)', None, 1, 200, None),
+    (r'^(Cinema|Sala bowling|Parco acquatico)', None, 1, 120, None),
+    (r'^(Bar|Ristorante|Pizzeria|Trattoria|Osteria|Gelateria|Pasticceria|Caff|Chiosco|Fast food|Sushi|Wine bar|Pub|Tavola calda|Piadineria|Enoteca)', 'com', 1, 25, None),
+    (r'^Agriturismo', None, 1, None, 8),
+    (r'^Hotel', None, 3, 150, None),
     # ---------------------------------------------------------------- servizi pubblici vari
-    (r'^Stadio', None, 1, None, 60, 'pubblico'),
-    (r'^Palazzetto', None, 1, None, 25, 'pubblico'),
-    (r'^(Museo|Biblioteca|Teatro|Planetario|Galleria|Fondazione|Anfiteatro)', None, 1, 120, None, 'pubblico'),
-    (r'^(Chiesa|Canonica|Oratorio|Casa parrocchiale)', None, 1, None, 2, 'privato'),
-    (r'^Cimitero', None, 1, None, 6, 'pubblico'),
-    (r'^(Parco|Giardino)', None, 1, None, 2, 'pubblico'),
-    (r'^Palestra', None, 1, 150, None, 'privato'),
+    (r'^Stadio', None, 1, None, 60),
+    (r'^Palazzetto', None, 1, None, 25),
+    (r'^(Museo|Biblioteca|Teatro|Planetario|Galleria|Fondazione|Anfiteatro)', None, 1, 120, None),
+    (r'^(Chiesa|Canonica|Oratorio|Casa parrocchiale)', None, 1, None, 2),
+    (r'^Cimitero', None, 1, None, 6),
+    (r'^(Parco|Giardino)', None, 1, None, 2),
+    (r'^Palestra', None, 1, 150, None),
     # ---------------------------------------------------------------- agricoltura
-    (r'^(Stalla|Ricovero per il bestiame|Sala di mungitura)', 'agr', 1, 1500, None, 'privato'),
-    (r'^Serr', 'agr', 1, 2500, None, 'privato'),
-    (r'^(Cascina|Azienda)', 'agr', 1, None, 6, 'privato'),
-    (r'^(Caseificio|Salumificio)', 'agr', 1, None, 8, 'privato'),
-    (r'^(Cantina|Barricaia|Spaccio|Magazzino agricolo|Deposito)', 'agr', 1, None, 2, 'privato'),
+    (r'^(Stalla|Ricovero per il bestiame|Sala di mungitura)', 'agr', 1, 1500, None),
+    (r'^Serr', 'agr', 1, 2500, None),
+    (r'^(Cascina|Azienda)', 'agr', 1, None, 6),
+    (r'^(Caseificio|Salumificio)', 'agr', 1, None, 8),
+    (r'^(Cantina|Barricaia|Spaccio|Magazzino agricolo|Deposito)', 'agr', 1, None, 2),
     # ---------------------------------------------------------------- industria
-    (r'(Logistica|Spedizion|Corriere|Smistamento|Centro distribuzione|Magazzino|Deposito|Cargo|Scalo|Container)', 'ind', 1, 120, None, 'privato'),
+    (r'(Logistica|Spedizion|Corriere|Smistamento|Centro distribuzione|Magazzino|Deposito|Cargo|Scalo|Container)', 'ind', 1, 120, None),
 ]
-COMPILED = [(re.compile(rx, re.I), cat, fl, m2, fixed, sec) for rx, cat, fl, m2, fixed, sec in RULES]
+COMPILED = [(re.compile(rx, re.I), cat, fl, m2, fixed) for rx, cat, fl, m2, fixed in RULES]
 
 # valori per categoria quando nessuna regola corrisponde: (piani, m² per addetto)
 DEFAULTS = {'uff': (2, 18), 'com': (1, 40), 'ind': (1, 70), 'art': (1, 50), 'pub': (1, 60), 'agr': (1, 3000)}
@@ -95,10 +94,10 @@ def footprint(path):
 
 
 def estimate(name, category, quarter, area_m2, floors=None):
-    """Restituisce (lavoratori, piani, settore). `floors` forza il numero di piani."""
+    """Restituisce (lavoratori, piani). `floors` forza il numero di piani."""
     if category == 'res':
-        return 0, floors or 4, '—'
-    for rx, cat, fl, m2, fixed, sector in COMPILED:
+        return 0, floors or 4
+    for rx, cat, fl, m2, fixed in COMPILED:
         if cat and cat != category:
             continue
         m = rx.search(name)
@@ -109,15 +108,15 @@ def estimate(name, category, quarter, area_m2, floors=None):
             fl = max(1, round(height / (3.2 if name.startswith('Hotel') else 3.5)))
         fl = floors or fl
         if fixed is not None:
-            return fixed, fl, sector
-        return max(1, round(area_m2 * fl / m2)), fl, sector
+            return fixed, fl
+        return max(1, round(area_m2 * fl / m2)), fl
     fl, m2 = DEFAULTS[category]
     if category == 'uff' and quarter in CENTRE:
         fl += 2                                  # negozi e bar del centro: piano terra; i piani sopra sono case
     fl = floors or fl
     if category == 'agr':
-        return max(0, round(area_m2 / m2)), fl, 'privato'
-    return max(1, round(area_m2 * fl / m2)), fl, 'privato'
+        return max(0, round(area_m2 / m2)), fl
+    return max(1, round(area_m2 * fl / m2)), fl
 
 
 def place_workers(place, covered=0.0):
@@ -126,7 +125,7 @@ def place_workers(place, covered=0.0):
 
 
 def assign_all(places):
-    """Lavoratori di tutti i luoghi: {id: (lavoratori, piani, settore)}.
+    """Lavoratori di tutti i luoghi: {id: (lavoratori, piani)}.
     Alcuni luoghi sono il contorno di un complesso (campus, ospedale, fiera) che contiene altri edifici con un nome:
     al complesso si conta solo la parte non occupata da quegli edifici."""
     by_lot = {}

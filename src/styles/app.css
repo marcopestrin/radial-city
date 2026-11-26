@@ -81,6 +81,34 @@ body,
   vector-effect: non-scaling-stroke;
 }
 
+/* perimetri aggiunti (public/data/perimetri.json): i contorni dei nuovi edifici e le singole attività dentro gli edifici */
+.map.show-footprints .place--footprint {
+  fill-opacity: 0.2;
+  stroke: var(--c);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.map.show-activities .place--activity {
+  fill-opacity: 0.14;
+  stroke: var(--c);
+  stroke-opacity: 0.85;
+  stroke-width: 0.8px;
+  vector-effect: non-scaling-stroke;
+}
+
+.map .place.place--footprint:hover,
+.map .place.place--activity:hover {
+  fill-opacity: 0.5;
+  stroke-opacity: 1;
+  stroke-width: 2px;
+}
+
+/* senza zoom (o con il livello spento) le attività non intercettano il mouse: si sceglie l'edificio intero */
+.map:not(.show-activities) .place--activity {
+  pointer-events: none;
+}
+
 /* linee autobus (vedi BusLayer): spessori in pixel dello schermo */
 .bus-casing {
   stroke: #fff;
@@ -702,6 +730,349 @@ body,
   color: var(--muted);
 }
 
+/* ---------------------------------------------------------------- censimento */
+
+/* il censimento è lungo: può occupare più spazio delle altre sezioni */
+.panel-section .census-body {
+  max-height: 62vh;
+}
+
+.census-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 4px 0 8px;
+}
+
+.census-tabs button {
+  flex: 1 0 auto;
+}
+
+/* su due righe: i bordi tra un bottone e l'altro restano anche andando a capo */
+.census-tabs button + button {
+  border-left: 1px solid var(--line);
+}
+
+.census-lot-name small {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.census-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0;
+}
+
+.census-grid > div {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.census-grid dt {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.census-grid dd {
+  margin: 1px 0 0;
+  font-size: 15px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.census-grid dd.census-note {
+  font-size: 10.5px;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.census-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.census-table th,
+.census-table td {
+  padding: 3px 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.census-table thead th {
+  font-size: 10px;
+  font-weight: normal;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.census-table th[scope='row'],
+.census-table thead th:first-child {
+  text-align: left;
+  font-weight: normal;
+  white-space: normal;
+}
+
+.census-table th[scope='row'] i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.census-table tbody tr {
+  cursor: pointer;
+}
+
+.census-table tbody tr:hover {
+  background: var(--line);
+}
+
+.census-table tbody tr.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.census-filters {
+  display: flex;
+  gap: 6px;
+}
+
+.census-filters .search {
+  flex: 1;
+  min-width: 0;
+}
+
+.census-select {
+  flex: none;
+  max-width: 120px;
+  margin: 2px 0 6px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.census-list,
+.census-spaces {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.census-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.census-button:hover,
+.census-button:focus-visible,
+.census-row.is-open .census-button {
+  background: var(--line);
+  outline: none;
+}
+
+.census-button i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--c);
+}
+
+.census-code {
+  flex: none;
+  margin-right: 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.census-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.census-name small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.census-figures {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.census-detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 2px 0 6px 22px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--line);
+  font-size: 11.5px;
+}
+
+.census-detail dt {
+  color: var(--muted);
+}
+
+.census-detail dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.census-unit {
+  display: block;
+}
+
+/* l'intestazione di un lotto nell'elenco del censimento */
+.census-lot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.census-lot span {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* i piani di un edificio del Centro, dall'ultimo al piano terra */
+.census-detail .census-wide {
+  grid-column: 1 / -1;
+}
+
+.census-floors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-bottom: 3px solid var(--line);
+}
+
+.census-floors li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  border-top: 1px solid var(--line);
+}
+
+.census-floor-number {
+  flex: none;
+  width: 34px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.census-floors i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.census-floor-what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.census-floor-what small {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.census-floor-companies {
+  font-style: italic;
+}
+
+/* le aziende di un edificio per uffici */
+.census-companies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.census-companies li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  border-top: 1px solid var(--line);
+}
+
+.census-company-name {
+  flex: none;
+  width: 68px;
+  color: var(--muted);
+}
+
+.census-company-what {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.census-company-what small {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.census-company-staff {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.census-hint {
+  padding-left: 16px;
+}
+
+.census-hint li + li {
+  margin-top: 3px;
+}
+
 /* ---------------------------------------------------------------- schermi piccoli */
 
 @media (max-width: 600px) {
@@ -712,4 +1083,61 @@ body,
   .sidebar.is-closed {
     width: auto;
   }
+}
+
+/* ---------------------------------------------------------------- accordion "Edifici" (censimento + elenco) */
+
+/* l'accordion aperto prende lo spazio che resta nella legenda; il suo corpo scorre da solo */
+.buildings-panel.is-open {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.buildings-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.buildings-body[hidden],
+.buildings-view[hidden] {
+  display: none;
+}
+
+.buildings-views {
+  display: flex;
+  margin: 4px 0 8px;
+}
+
+.buildings-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* nell'accordion i due elenchi non scorrono per conto loro: scorre tutto il corpo */
+.buildings-body .directory-list {
+  overflow: visible;
+}
+
+.tooltip .tooltip-company {
+  opacity: 0.85;
+}
+
+/* titolo di una sezione sempre aperta ("Livelli e colori"): come i pulsanti delle altre, senza freccia */
+.section-title {
+  margin: 10px 0 4px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }

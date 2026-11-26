@@ -21,7 +21,11 @@ const DEFAULT_LAYERS: LayerVisibility = {
   lotOutlines: false,
   lotNumbers: true,
   activityLabels: false,
+  heightLabels: false,
+  residentLabels: false,
+  jobLabels: false,
   busLines: true,
+  activityOutlines: true,
 };
 const STORAGE_KEY = 'citta-radiale-mappa';
 
@@ -142,10 +146,12 @@ export default function App() {
         return;
       }
       select(placeId, false);
-      setReveal({ placeId, token: performance.now() });
+      // il perimetro di un'attività apre nell'elenco l'edificio che la contiene
+      const container = data?.censusActivityByPlace.get(placeId)?.building.luoghi[0];
+      setReveal({ placeId: container ?? placeId, token: performance.now() });
       setSidebarOpen(true);
     },
-    [select],
+    [select, data],
   );
 
   const handleClickEmpty = useCallback(() => setTooltip(null), []);
@@ -193,7 +199,15 @@ export default function App() {
         onSelectPlace={handleSelectFromList}
       />
       {tooltip && tooltipPlace && (
-        <Tooltip place={tooltipPlace} category={data.categoryById[tooltipPlace.category]} clientX={tooltip.x} clientY={tooltip.y} />
+        <Tooltip
+          place={tooltipPlace}
+          category={data.categoryById[tooltipPlace.category]}
+          building={data.censusBuildingByPlace.get(tooltipPlace.id)}
+          space={data.censusSpaceByPlace.get(tooltipPlace.id)}
+          activity={data.censusActivityByPlace.get(tooltipPlace.id)}
+          clientX={tooltip.x}
+          clientY={tooltip.y}
+        />
       )}
       <ZoomControls onZoomIn={() => zoomAtCentre(1.6)} onZoomOut={() => zoomAtCentre(1 / 1.6)} onShowAll={fit} />
       <ScaleBar scale={view.scale} />

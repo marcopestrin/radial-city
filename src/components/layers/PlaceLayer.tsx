@@ -14,7 +14,7 @@ function PlaceLayer({ places, categoryById }: { places: Place[]; categoryById: R
       {places.map((place) => (
         <path
           key={place.id}
-          className="place"
+          className={place.kind ? `place place--${place.kind}` : 'place'}
           data-place-id={place.id}
           d={place.path}
           style={{ '--c': categoryById[place.category].color } as CSSProperties}

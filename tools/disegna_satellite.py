@@ -5,6 +5,9 @@
 # rilanciare senza disegnare due volte. Le immagini senza disegni restano identiche a quelle di base. Servono numpy e Pillow.
 #   python3 tools/disegna_satellite.py            (tutto)
 #   python3 tools/disegna_satellite.py 1834 ...   (solo i luoghi con questi id; le altre immagini tornano originali)
+#   SENZA_NUOVI=1 USCITA=backup/base python3 tools/disegna_satellite.py
+#       il satellite senza i tetti dei nuovi edifici (perimetri.json), in un'altra cartella: tools/perimetri.py lo guarda per
+#       mettere i nuovi edifici su terreno libero (prato, terra) e non su parcheggi, tetti o strade
 import json, math, os, random, re, shutil, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
@@ -19,6 +22,11 @@ S = PX * SS
 world = json.load(open('public/data/world.json'))
 places = json.load(open('public/data/places.json', encoding='utf-8'))
 lots = {l['number']: l for l in json.load(open('public/data/lots.json', encoding='utf-8'))}
+# i contorni degli edifici del censimento che la mappa non aveva (tools/perimetri.py): si disegna il loro tetto
+PERIMETRI = os.environ.get('PERIMETRI', 'public/data/perimetri.json')      # (per le prove: un altro perimetri.json)
+CONTORNI_NUOVI = [q for q in (json.load(open(PERIMETRI, encoding='utf-8')) if os.path.exists(PERIMETRI) else [])
+                  if q['kind'] == 'footprint' and q.get('origine') != 'foto' and not os.environ.get('SENZA_NUOVI')]
+USCITA = os.environ.get('USCITA', 'public').rstrip('/') + '/'
 
 if not os.path.isdir(ORIG):
     os.makedirs(ORIG)
@@ -379,15 +387,6 @@ TRANSPLANT = {
     1888: [dict(src=(1250, 4040, 1540, 4180), center=(cx, cy), size=(99, h), feather=1.0, at=(ax, ay), clip=True)
            for cy, h, ay in ((4079, 36, 2238.4), (4137.5, 35, 2274.1))
            for cx, ax in ((1323, 1175.4), (1463, 1269.2))],
-    # Palazzo residenziale, lotto 2 (Centro): due palazzi a corte grigi come quelli intorno (l'incubatore del lotto 14,
-    # raddrizzato, con la sua ombra a sud), uno per metà lotto, su un lastricato alberato del Centro.
-    1896: [dict(src=(1570, 495, 1660, 545), center=(1613.5, 520), size=(60, 30), feather=5.0, at=(x, y),
-                flip=(i + j) % 2 == 1, clip=True)
-           for i, x in enumerate((1640, 1670, 1700)) for j, y in enumerate((425, 450, 475, 500, 525))]
-          + [dict(src=(1430, 710, 1545, 810), center=(1487.5, 764), angle=14.0, size=(54, 46), scale=1.14,
-                  feather=1.5, at=(1668, 451), clip=True),
-             dict(src=(1430, 710, 1545, 810), center=(1487.5, 764), angle=14.0, size=(54, 46), scale=1.04,
-                  feather=1.5, at=(1679, 508), clip=True)],
     # Lotti 52 e 54 (La Cerchia), lungo il viale a -26,6°: i pezzi si raddrizzano e poi si girano di 26,6° (rot).
     # Scuola primaria, lotto 52: la scuola a U di Campagna Est (lotto 579) col giardino nella corte, su un prato.
     1833: [dict(src=(1630, 2315, 1710, 2395), center=(1670, 2355), size=(60, 60), feather=6.0, at=(x, y),
@@ -598,15 +597,293 @@ def transplant(pt, poly, src, center, size, angle=0.0, scale=1.0, feather=3.0, a
     pt.img = Image.alpha_composite(pt.img, layer)
 
 
+# ------------------------------------------------------------------ edifici nuovi copiati da un edificio vero della foto
+LUOGO = {q['id']: q for q in places}
+
+
+def ombra(pt, poly, floors, rng):
+    """L'ombra di un edificio sul terreno, verso sud-est come quelle della foto, sfumata ai bordi."""
+    h = min(floors * 3.0 * 0.35, 16)
+    m = Image.new('L', (pt.w, pt.h), 0)
+    d = ImageDraw.Draw(m)
+    for t in np.linspace(0, 1, 9):
+        d.polygon([pt.P(x + 0.8 * h * t, y + 0.6 * h * t) for x, y in poly], fill=255)
+    m = m.filter(ImageFilter.GaussianBlur(0.5 * S))
+    L = Image.new('RGBA', (pt.w, pt.h), (14, 16, 12, 0))
+    L.putalpha(m.point(lambda v: v * 118 // 255))
+    pt.put(L)
+
+
+def modello(pt, p, rng):
+    """Un edificio nuovo copiato da un edificio vero della foto (tools/perimetri.py sceglie il modello): il tetto con la sua luce e
+    i suoi dettagli, girato di pochi gradi e messo in scala, con la sua ombra sul terreno nuovo."""
+    m = p['donatore']
+    src = main_poly(LUOGO[m['id']]['path'])
+    cx, cy = centroid(src)
+    xs, ys = [x for x, _ in src], [y for _, y in src]
+    pad = 0.2 * max(max(xs) - min(xs), max(ys) - min(ys)) + 4
+    box = (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
+    img = photo(box, S).convert('RGBA')
+    mask = Image.new('L', img.size, 0)
+    ImageDraw.Draw(mask).polygon([((x - box[0]) * S, (y - box[1]) * S) for x, y in src], fill=255)
+    mask = mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.35 * S))
+    img.putalpha(mask)
+    ccx, ccy = (cx - box[0]) * S, (cy - box[1]) * S
+    if m['rot']:
+        img = img.rotate(-m['rot'], resample=Image.BICUBIC, center=(ccx, ccy))
+    sc = m['scala']
+    if abs(sc - 1) > 1e-3:
+        img = img.resize((max(1, int(img.width * sc)), max(1, int(img.height * sc))), Image.LANCZOS)
+        ccx, ccy = ccx * sc, ccy * sc
+    ombra(pt, main_poly(p['path']), p.get('floors', 1), rng)
+    layer = pt.layer()
+    px, py = pt.P(*m['centro'])
+    layer.paste(img, (int(round(px - ccx)), int(round(py - ccy))), img)
+    pt.img = Image.alpha_composite(pt.img, layer)
+
+
+# ------------------------------------------------------------------ gli insediamenti dei nuovi edifici (tools/siti.py)
+# Intorno a ogni edificio nuovo: il parcheggio, l'accesso dalla strada, il marciapiede, il vialetto, l'aia con la siepe. Ogni pezzo è
+# un pezzo di foto vera (tools/tessiture.py) girato nel verso dell'insediamento e ritagliato sulla sua forma, con il bordo sfumato.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tessiture as tess
+
+SITI_JSON = os.environ.get('SITI', 'tools/siti.json')
+SITI = ([] if os.environ.get('SENZA_NUOVI') or not os.path.exists(SITI_JSON) else json.load(open(SITI_JSON, encoding='utf-8')))
+_sorgenti = {}
+_moduli = []
+
+
+def sorgente(box):
+    """Il riquadro box (metri) delle immagini originali a S pixel per metro (tenuto in memoria)."""
+    k = tuple(round(v, 2) for v in box)
+    if k not in _sorgenti:
+        _sorgenti[k] = photo(box, S)
+    return _sorgenti[k]
+
+
+def moduli_parcheggio():
+    """I pezzi di parcheggio vero che si possono copiare: da una cucitura all'altra (1 o 2 moduli) lungo tutte le file."""
+    if not _moduli:
+        for nome, x0, x1, y0, y1, asse in tess.PARCHEGGI:
+            a = np.array(photo((x0, y0, x1, y1), PX))
+            cuc = tess.cuciture(a, asse, y0 if asse == 'x' else x0)
+            for n in (1, 2):
+                for da, a_ in tess.moduli(cuc, n):
+                    _moduli.append({'nome': nome, 'n': n, 'da': da, 'a': a_, 'asse': asse, 'box': (x0, y0, x1, y1)})
+    return _moduli
+
+
+def incolla(pt, poly, src, origine, A, t, sfuma=0.5):
+    """Dentro `poly` (mondo) l'immagine `src` (a S pixel per metro, il suo pixel (0, 0) è il punto `origine` delle sue coordinate)
+    vista attraverso la trasformazione mondo -> sorgente (xs, ys) = A (x, y) + t; bordo sfumato di `sfuma` metri."""
+    (a, b), (c, d) = A
+    coeff = (a, b, S * (a * pt.x0 + b * pt.y0 + t[0] - origine[0]), c, d, S * (c * pt.x0 + d * pt.y0 + t[1] - origine[1]))
+    img = src.transform((pt.w, pt.h), Image.AFFINE, coeff, resample=Image.BICUBIC).convert('RGBA')
+    m = pt.mask(poly)
+    if sfuma:
+        m = m.filter(ImageFilter.GaussianBlur(sfuma * S / 2))
+    img.putalpha(m)
+    pt.img = Image.alpha_composite(pt.img, img)
+
+
+def _locale(o, eu, ev, u0, v0, u1, v1):
+    return [tuple(o + u * eu + v * ev) for u, v in ((u0, v0), (u1, v0), (u1, v1), (u0, v1))]
+
+
+def parcheggio_vero(pt, o, eu, ev, rc, rng):
+    """Un parcheggio: un pezzo di parcheggio vero della foto con lo stesso numero di moduli (fila, corsia, fila), le file lungo u."""
+    u0, v0, u1, v1 = rc
+    W, D = u1 - u0, v1 - v0
+    n = max(1, round(D / 16.5))
+    adatti = []
+    for m in moduli_parcheggio():
+        if m['n'] != n:
+            continue
+        s = D / (m['a'] - m['da'])
+        x0, y0, x1, y1 = m['box']
+        lungo = (x1 - x0) if m['asse'] == 'x' else (y1 - y0)
+        if 0.85 <= s <= 1.18 and lungo - 2 >= W / s:
+            adatti.append((m, s, lungo))
+    if not adatti:
+        return False
+    m, s, lungo = adatti[rng.randrange(len(adatti))]
+    x0, y0, x1, y1 = m['box']
+    off = rng.uniform(1, lungo - 1 - W / s)
+    gira = rng.random() < 0.5                           # mezzo giro: la stessa scena vista dall'altra parte
+    ou, ov = float(o @ eu) + u0, float(o @ ev) + v0     # (u, v) - (ou, ov) = coordinate dentro il rettangolo
+    if m['asse'] == 'x':
+        if not gira:      # xs = x0 + off + (u - u0)/s, ys = da + (v - v0)/s
+            A, t = (eu / s, ev / s), (x0 + off - ou / s, m['da'] - ov / s)
+        else:             # xs = x0 + off + W/s - (u - u0)/s, ys = a - (v - v0)/s
+            A, t = (-eu / s, -ev / s), (x0 + off + W / s + ou / s, m['a'] + ov / s)
+    else:
+        if not gira:      # xs = da + (v - v0)/s, ys = y0 + off + W/s - (u - u0)/s
+            A, t = (ev / s, -eu / s), (m['da'] - ov / s, y0 + off + W / s + ou / s)
+        else:             # xs = a - (v - v0)/s, ys = y0 + off + (u - u0)/s
+            A, t = (-ev / s, eu / s), (m['a'] + ov / s, y0 + off - ou / s)
+    box = (x0 - 3, y0 - 3, x1 + 3, y1 + 3)
+    incolla(pt, _locale(o, eu, ev, *rc), sorgente(box), box[:2], A, t, sfuma=0.6)
+    return True
+
+
+def materiale(pt, nome, poly_locale, o, eu, ev, rc, rng, sfuma=0.5):
+    """Un materiale uniforme (asfalto, pavimento chiaro, ghiaia): una finestra vera della foto ripetuta a specchio fino a coprire il
+    rettangolo rc, in un verso a caso."""
+    u0, v0, u1, v1 = rc
+    cx, cy, hh = tess.MATERIALI[nome][rng.randrange(len(tess.MATERIALI[nome]))]
+    base = sorgente((cx - hh, cy - hh, cx + hh, cy + hh))
+    lato = max(u1 - u0, v1 - v0) + 2 * hh + 4
+    nt = int(math.ceil(lato / (2 * hh)))
+    tess_img = Image.new('RGB', (base.width * nt, base.height * nt))
+    for i in range(nt):
+        for j in range(nt):
+            q = base.transpose(Image.FLIP_LEFT_RIGHT) if i % 2 else base
+            q = q.transpose(Image.FLIP_TOP_BOTTOM) if j % 2 else q
+            tess_img.paste(q, (i * base.width, j * base.height))
+    off_u, off_v = rng.uniform(0, 2 * hh), rng.uniform(0, 2 * hh)
+    ou, ov = float(o @ eu) + u0, float(o @ ev) + v0
+    if rng.random() < 0.5:
+        A, t = (eu, ev), (off_u - ou, off_v - ov)
+    else:
+        A, t = (ev, eu), (off_u - ov, off_v - ou)
+    incolla(pt, poly_locale, tess_img, (0.0, 0.0), A, t, sfuma=sfuma)
+
+
+def siepe(pt, a, b, n, rng, dentro=4.0, fuori=2.0):
+    """Il bordo di un'aia: una fila vera di arbusti della foto (con le loro ombre) lungo il lato a-b, n verso l'interno; la striscia
+    va da `fuori` metri fuori a `dentro` metri dentro l'aia (ghiaia, arbusti, prato)."""
+    xc, y0, y1 = tess.SIEPI[rng.randrange(len(tess.SIEPI))]
+    L = math.dist(a, b)
+    lungo = y1 - y0
+    if L > lungo - 2:
+        m = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        siepe(pt, a, m, n, rng, dentro, fuori)
+        siepe(pt, m, b, n, rng, dentro, fuori)
+        return
+    es = np.array([(b[0] - a[0]) / L, (b[1] - a[1]) / L])
+    en = np.array(n)
+    A0 = np.array(a)
+    poly = [tuple(A0 - fuori * en), tuple(A0 + L * es - fuori * en), tuple(A0 + L * es + dentro * en), tuple(A0 + dentro * en)]
+    off = rng.uniform(1, lungo - 1 - L)
+    sa, ta = float(A0 @ es), float(A0 @ en)
+    # xs = xc - t (t: metri verso l'interno dell'aia dalla fila), ys = y0 + off + s (s lungo il lato)
+    A, t = (-en, es), (xc + ta, y0 + off - sa)
+    box = (xc - 8, y0 - 2, xc + 8, y1 + 2)
+    incolla(pt, poly, sorgente(box), box[:2], A, t, sfuma=1.0)
+
+
+def campo_vero(pt, o, eu, ev, rc, rng):
+    """Un campetto da basket vero della foto, girato e messo in scala sul rettangolo rc (con il suo bordo)."""
+    cx, cy = tess.CAMPI[rng.randrange(len(tess.CAMPI))]
+    box = (cx - 26, cy - 26, cx + 26, cy + 26)
+    cd, ad, Ld, _ = tess.campo(np.array(photo(box, PX)), box[0], box[1])
+    u0, v0, u1, v1 = rc
+    at = eu if (u1 - u0) >= (v1 - v0) else ev
+    Lt = max(u1 - u0, v1 - v0)
+    ct = o + (u0 + u1) / 2 * eu + (v0 + v1) / 2 * ev
+    R90 = lambda a: np.array([-a[1], a[0]])
+    s = Lt / Ld
+    if rng.random() < 0.5:
+        ad = -ad
+    M = (np.outer(ad, at) + np.outer(R90(ad), R90(at))) / s     # mondo (attorno a ct) -> campo vero (attorno a cd)
+    A, t = (M[0], M[1]), tuple(cd - M @ ct)
+    g = 1.5
+    poly = _locale(o, eu, ev, u0 - g, v0 - g, u1 + g, v1 + g)
+    incolla(pt, poly, sorgente(box), box[:2], A, t, sfuma=0.9)
+
+
+ORDINE_SITO = ['giardino', 'aia', 'piazzale', 'strada', 'campo', 'parcheggio', 'accesso', 'marciapiede', 'piazzetta', 'vialetto']
+MATERIALE_DI = {'piazzale': 'asfalto', 'strada': 'asfalto', 'accesso': 'asfalto', 'marciapiede': 'chiaro', 'piazzetta': 'chiaro',
+                'vialetto': 'chiaro', 'aia': 'ghiaia', 'giardino': 'prato'}
+
+
+def disegna_sito(pt, s, rng):
+    o, eu, ev = np.array(s['o']), np.array(s['u']), np.array(s['v'])
+    for el in sorted(s['elementi'], key=lambda e: ORDINE_SITO.index(e['tipo'])):
+        rc = el['rect']
+        if el['tipo'] == 'parcheggio' and parcheggio_vero(pt, o, eu, ev, rc, rng):
+            continue
+        if el['tipo'] == 'campo':
+            campo_vero(pt, o, eu, ev, rc, rng)
+            continue
+        nome = MATERIALE_DI.get(el['tipo'], 'asfalto')
+        materiale(pt, nome, _locale(o, eu, ev, *rc), o, eu, ev, rc, rng,
+                  sfuma={'ghiaia': 0.7, 'prato': 1.6}.get(nome, 0.45))
+        if el['tipo'] == 'giardino':                    # arbusti lungo il confine del giardino, ai lati e dietro
+            u0, v0, u1, v1 = rc
+            P = lambda u, v: tuple(o + u * eu + v * ev)
+            for a, b, n in ((P(u0, v1), P(u0, v0 + 4), eu), (P(u1, v0 + 4), P(u1, v1), -eu), (P(u1, v1), P(u0, v1), -ev)):
+                if rng.random() < 0.8:
+                    siepe(pt, a, b, tuple(n), rng, dentro=2.5, fuori=0.8)
+        if el['tipo'] == 'aia':                         # la siepe sui tre lati senza ingresso
+            u0, v0, u1, v1 = rc
+            P = lambda u, v: tuple(o + u * eu + v * ev)
+            for a, b, n in ((P(u0, v1), P(u0, v0), eu), (P(u1, v0), P(u1, v1), -eu), (P(u1, v1), P(u0, v1), -ev)):
+                if rng.random() < 0.85:
+                    siepe(pt, a, b, tuple(n), rng)
+
+
+# ------------------------------------------------------------------ capannoni divisi tra le aziende (tools/perimetri.py, divisioni.json)
+# Un capannone con più aziende diventa più corpi: tra un corpo e l'altro una corsia di cemento (il cemento del piazzale vero), con
+# l'ombra del corpo a nord-ovest e il bordo chiaro dei tetti tagliati, come i capannoni separati della foto.
+DIVISIONI_JSON = os.environ.get('DIVISIONI', 'tools/divisioni.json')
+DIVISIONI = ([] if os.environ.get('SENZA_NUOVI') or not os.path.exists(DIVISIONI_JSON)
+             else json.load(open(DIVISIONI_JSON, encoding='utf-8')))
+
+
+def riempi(pt, poly, nome, rng):
+    """Un poligono qualsiasi pieno di un materiale di tessiture.MATERIALI, nel verso del suo rettangolo orientato."""
+    from shapely.geometry import Polygon as _P
+    r = list(_P(poly).minimum_rotated_rectangle.exterior.coords)
+    o = np.array(r[0])
+    eu, ev = np.array(r[1]) - o, np.array(r[3]) - o
+    L1, L2 = np.linalg.norm(eu), np.linalg.norm(ev)
+    eu, ev = eu / L1, ev / L2
+    materiale(pt, nome, poly, o, eu, ev, (0.0, 0.0, L1, L2), rng, sfuma=0.3)
+
+
+def dividi_capannone(pt, d, rng):
+    corsie = [main_poly(c) for c in d['corsie']]
+    corpi = [main_poly(c) for c in d['corpi']]
+    for c in corsie:
+        riempi(pt, c, 'cemento', rng)
+    m_corsie = Image.new('L', (pt.w, pt.h), 0)
+    for c in corsie:
+        ImageDraw.Draw(m_corsie).polygon([pt.P(*q) for q in c], fill=255)
+    # l'ombra di ogni corpo cade nelle corsie come quella vera dei capannoni nella foto: 6 m verso est, 3 m verso sud, scura
+    L = Image.new('RGBA', (pt.w, pt.h), (14, 16, 12, 0))
+    m = Image.new('L', (pt.w, pt.h), 0)
+    for g in corpi:
+        for t in np.linspace(0, 1, 7):                  # il corpo trascinato lungo la direzione dell'ombra
+            ImageDraw.Draw(m).polygon([pt.P(x + 6.0 * t, y + 3.0 * t) for x, y in g], fill=255)
+    m = m.filter(ImageFilter.GaussianBlur(0.3 * S))
+    a = (np.array(m).astype(np.uint16) * np.array(m_corsie) // 255 * 200 // 255).astype(np.uint8)
+    L.putalpha(Image.fromarray(a))
+    pt.img = Image.alpha_composite(pt.img, L)
+    # il bordo chiaro dei tetti lungo le corsie (il parapetto)
+    L = pt.layer()
+    dr = ImageDraw.Draw(L)
+    for g in corpi:
+        dr.line([pt.P(*q) for q in g + [g[0]]], fill=(226, 226, 220, 170), width=max(1, int(0.7 * S)))
+    vicino = m_corsie.filter(ImageFilter.MaxFilter(int(2.0 * S) | 1))
+    a = np.array(L)
+    a[..., 3] = (a[..., 3].astype(np.uint16) * np.array(vicino) // 255).astype(np.uint8)
+    pt.img = Image.alpha_composite(pt.img, Image.fromarray(a))
+
+
 # ------------------------------------------------------------------ cosa disegnare
 ROOF = {'uff': (152, 162, 174), 'com': (196, 150, 112), 'ind': (186, 108, 78), 'art': (176, 120, 90), 'pub': (204, 196, 182), 'agr': (140, 72, 52), 'res': (176, 150, 120)}
 ONLY = {int(a) for a in sys.argv[1:]}
 # luoghi che la foto di base non ha: scuole di La Cerchia, istituto tecnico, ospedale di Porta Sud, bar del lotto 66,
 # negozi dei lotti 251, 304, 361 e 469 (l'ospedale di Porta Sud è diviso in corpo, ali, padiglioni, laboratori, eliporto e parcheggi)
-DISEGNATI = {1887, 1888, 1843, 1871, 1921, 1922, 1878, 1879, 1919, 1832, 1833, 1834, 1835, 1836, 1866, 1837, 1838, 1839, 1852, 1861, 1863, 1870, 1873, 1896, 1900, 1901, 1904, 1910, 1911, 1912, 1913, 1914, 1915, 1916, 1917, 1918}
+DISEGNATI = {1887, 1888, 1843, 1871, 1921, 1922, 1878, 1879, 1919, 1832, 1833, 1834, 1835, 1836, 1866, 1837, 1838, 1839, 1852, 1861, 1863, 1870, 1873, 1900, 1901, 1904, 1910, 1911, 1912, 1913, 1914, 1915, 1916, 1917, 1918}
+# I luoghi di La Cerchia disegnati qui sopra (scuole, uffici comunali, bar) non sono più in places.json (La Cerchia ha
+# i suoi edifici censiti, tools/cerchia.py), ma la foto resta quella: i loro contorni stanno in tools/cerchia_luoghi_foto.json.
+LUOGHI_FOTO = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cerchia_luoghi_foto.json'), encoding='utf-8'))
 features = []
-for p in places:
-    if p['id'] not in DISEGNATI:
+for p in places + [q for q in LUOGHI_FOTO if q['id'] not in {x['id'] for x in places}] + CONTORNI_NUOVI:
+    if p['id'] not in DISEGNATI and p.get('kind') != 'footprint':
         continue
     if ONLY and p['id'] not in ONLY:
         continue
@@ -614,7 +891,9 @@ for p in places:
     lot = lots.get(p['lot'])
     whole = lot is not None and abs(area(poly)) >= 0.8 * abs(area(main_poly(lot['path'])))
     n = p['name']
-    if p['id'] in TRANSPLANT:
+    if p.get('donatore'):
+        kind = 'modello'
+    elif p['id'] in TRANSPLANT:
         kind = 'transplant'
     elif n.startswith('Campi e impianto fotovoltaico'):
         kind = 'solar'
@@ -635,20 +914,100 @@ for p in places:
     else:
         kind = 'roof'
     features.append((kind, p['id'], poly, p))
+for s_ in SITI:                                         # gli insediamenti dei nuovi edifici, sotto i loro tetti
+    if ONLY and -200000 - s_['id'] not in ONLY:
+        continue
+    o_, eu_, ev_ = np.array(s_['o']), np.array(s_['u']), np.array(s_['v'])
+    pts_ = [tuple(o_ + u * eu_ + v * ev_) for el in s_['elementi'] for u in el['rect'][0::2] for v in el['rect'][1::2]]
+    features.append(('sito', -200000 - s_['id'], pts_, s_))
+for d_ in DIVISIONI:                                    # capannoni divisi: sopra il capannone, dopo tutto il resto
+    if ONLY and -300000 - d_['luogo'] not in ONLY:
+        continue
+    features.append(('divisione', -300000 - d_['luogo'], [q for c in d_['corsie'] for q in main_poly(c)], d_))
 for n, tp in LOT_TRANSPLANT.items():
     if not ONLY or -n in ONLY:                          # da riga di comando un lotto si indica col meno: -297
         features.append(('transplant', -n, main_poly(lots[n]['path']), {'id': -n, 'name': f'lotto {n}', 'tp': tp}))
 
+# Il Centro (tools/centro.py), disegnato da zero da tools/disegna_centro.py: ogni lotto con edifici, tolta la sua metà
+# delle strade, ha il suo terreno (lastricato, marciapiedi, giardini, alberi) e i suoi edifici, con facciate, tetti e
+# ombre. Prima, sulle strade del Centro si schiariscono le ombre dei vecchi grattacieli della foto di base. La Cerchia
+# resta la foto: i suoi edifici censiti (tools/cerchia.py) sono gli edifici della foto.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import centro as centro_mod
+from centro import suolo as centro_suolo, poligono as centro_poligono
+from disegna_centro import disegna_suolo, disegna_ombre, disegna_edifici
+
+RIFATTI = [('Centro', centro_mod.edifici(), centro_mod.RESTANO)]     # La Cerchia resta la foto (tools/cerchia.py)
+QUARTIERI = {q['name']: q for q in json.load(open('public/data/quarters.json', encoding='utf-8'))}
+centro_places = {p['id']: p for p in places if p['id'] in centro_mod.RESTANO}
+RIFATTI_LOTTI = {}
+# tre passate: il terreno di tutti i lotti, le ombre di tutto il quartiere (cadono anche sulle strade e sui lotti vicini),
+# gli edifici di ogni lotto; gli edifici che restano come sono (il Duomo) non si disegnano
+for k, (nome, es_q, _) in enumerate(RIFATTI):
+    per_lotto = {}
+    for e in es_q:
+        if e['forma'] != 'esistente':
+            per_lotto.setdefault(e['lotto'], []).append(e)
+    RIFATTI_LOTTI[nome] = per_lotto
+    if ONLY and not any(-n in ONLY for n in per_lotto):
+        continue
+    area_q = centro_poligono(QUARTIERI[nome]['path'])
+    for n, es in per_lotto.items():
+        suolo_xy = list(centro_suolo(n).exterior.coords)[:-1]
+        features.append(('centro', -n, suolo_xy, {'id': -n, 'lot': n, 'edifici': es}))
+        features.append(('centro_edifici', -n, suolo_xy, {'id': -n, 'lot': n, 'edifici': es}))
+    features.append(('centro_ombre', -9999 + k, list(area_q.exterior.coords)[:-1],
+                     {'id': -9999 + k, 'edifici': [e for es in per_lotto.values() for e in es], 'area': area_q}))
+
 # l'ordine conta: prima il terreno (campi, parchi), poi gli edifici sopra
-ORDER = ['transplant', 'solar', 'field', 'park', 'houses', 'farmyard', 'campus', 'busstation', 'warehouses', 'parking', 'roof']
+ORDER = ['centro', 'centro_ombre', 'centro_edifici', 'transplant', 'solar', 'field', 'park', 'houses', 'farmyard', 'campus', 'busstation', 'warehouses', 'parking', 'roof', 'sito', 'modello', 'divisione']
 features.sort(key=lambda f: (ORDER.index(f[0]), -abs(area(f[2]))))
+
+# Le strade dei quartieri rifatti (il quartiere meno il suolo dei suoi lotti) erano in ombra sotto i vecchi edifici: i
+# pixel scuri dell'asfalto si riportano al colore dell'asfalto al sole (guadagno per canale misurato sulla foto di base).
+OMBRA_STRADE = (2.6, 2.4, 2.1)
+from shapely.ops import unary_union
+for nome, _, _ in RIFATTI:
+    if ONLY and not any(-n in ONLY for n in RIFATTI_LOTTI[nome]):
+        continue
+    q_lots = [l['number'] for l in lots.values() if l['quarter'] == nome]
+    strade = centro_poligono(QUARTIERI[nome]['path']).difference(unary_union([centro_suolo(n) for n in q_lots]))
+    bx0, by0, bx1, by1 = strade.bounds
+    for t, img in tiles:
+        if t['x'] > bx1 or t['y'] > by1 or t['x'] + t['size'] < bx0 or t['y'] + t['size'] < by0:
+            continue
+        m = Image.new('L', img.size, 0)
+        dm = ImageDraw.Draw(m)
+        for g in getattr(strade, 'geoms', [strade]):
+            dm.polygon([((x - t['x']) * PX, (y - t['y']) * PX) for x, y in g.exterior.coords], fill=255)
+            for h in g.interiors:
+                dm.polygon([((x - t['x']) * PX, (y - t['y']) * PX) for x, y in h.coords], fill=0)
+        M = np.array(m.filter(ImageFilter.GaussianBlur(1))).astype(np.float32) / 255
+        if not M.any():
+            continue
+        a = np.array(img).astype(np.float32)
+        lum = np.array(Image.fromarray(a.mean(2).astype(np.uint8)).filter(ImageFilter.GaussianBlur(2))).astype(np.float32)
+        w = np.clip((68 - lum) / 20, 0, 1) * M
+        w = np.array(Image.fromarray((w * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.5))).astype(np.float32) / 255
+        a = a * (1 + w[..., None] * (np.array(OMBRA_STRADE) - 1))
+        img.paste(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
+        touched.add(t['file'])
 
 counts = {}
 built_houses = {}
 for kind, fid, poly, p in features:
     rng = random.Random(fid)
     pt = Patch(poly)
-    if kind == 'transplant':                            # uno o più pezzi; la toppa deve contenerli tutti
+    if kind == 'centro':
+        holes = [centro_poligono(q['path']) for q in centro_places.values() if q['lot'] == p['lot'] and q['id'] != 9]
+        disegna_suolo(pt, centro_suolo(p['lot']), p['edifici'], holes, rng)
+    elif kind == 'centro_ombre':
+        pt = Patch(poly, margin=5)
+        disegna_ombre(pt, p['edifici'], p['area'], rng)
+    elif kind == 'centro_edifici':
+        pt = Patch(poly, margin=24)                    # i tetti alti si vedono spostati a nord, fuori dal lotto
+        disegna_edifici(pt, p['edifici'], rng)
+    elif kind == 'transplant':                            # uno o più pezzi; la toppa deve contenerli tutti
         pieces = p.get('tp') or TRANSPLANT[p['id']]
         pieces = pieces if isinstance(pieces, list) else [pieces]
         ats = [q['at'] for q in pieces if q.get('at')]
@@ -656,6 +1015,14 @@ for kind, fid, poly, p in features:
         lp = main_poly(lots[p['lot']]['path']) if p.get('lot') in lots else poly
         for q in pieces:
             transplant(pt, poly, lot_poly=lp, **q)
+    elif kind == 'modello':
+        modello(pt, p, rng)
+    elif kind == 'sito':
+        pt = Patch(poly, margin=6)
+        disegna_sito(pt, p, rng)
+    elif kind == 'divisione':
+        pt = Patch(poly, margin=8)
+        dividi_capannone(pt, p, rng)
     elif kind == 'field':
         stripes(pt, poly, main_axis(poly), 9.0, 9.0, (150, 134, 92), (118, 132, 78), rng)
     elif kind == 'solar':
@@ -685,7 +1052,8 @@ for kind, fid, poly, p in features:
         parking(pt, poly, rng)
     else:
         rgb = ((226, 226, 220) if p['name'].startswith(('Ospedale', 'Stazione autobus'))
-               else (200, 92, 80) if p['name'] == 'Pronto soccorso' else ROOF[p['category']])
+               else (200, 92, 80) if p['name'] == 'Pronto soccorso'
+               else (172, 82, 72) if p['name'].startswith(('Scuola', 'Asilo', 'Liceo')) else ROOF[p['category']])
         roof(pt, poly, rgb, p.get('floors', 3), rng, ribs=p['category'] in ('ind', 'art') or p['name'].startswith(('Mercato', 'Padiglione')),
              helipad=p['name'] == 'Ospedale di Porta Sud')
     counts[kind] = counts.get(kind, 0) + 1
@@ -694,10 +1062,10 @@ for kind, fid, poly, p in features:
     small = pt.img.resize((max(1, int(pt.w / SS)), max(1, int(pt.h / SS))), Image.LANCZOS)
     a = np.array(small).astype(np.float32)
     grain = np.random.default_rng(abs(fid)).normal(0, 5.5, a.shape[:2])[..., None]
-    if kind != 'transplant':                            # una foto vera ha già la sua grana
+    if kind not in ('transplant', 'modello', 'sito', 'divisione'):   # una foto vera ha già la sua grana
         a[..., :3] = np.clip(a[..., :3] + grain * (a[..., 3:4] > 0), 0, 255)
     small = Image.fromarray(a.astype(np.uint8))
-    if kind != 'transplant':
+    if kind not in ('transplant', 'modello', 'sito', 'divisione'):
         small = small.filter(ImageFilter.GaussianBlur(0.35))
     for t, img in tiles:
         ox = round((pt.x0 - t['x']) * PX)
@@ -707,10 +1075,11 @@ for kind, fid, poly, p in features:
         img.paste(small, (ox, oy), small)
         touched.add(t['file'])
 
+os.makedirs(USCITA + 'tiles', exist_ok=True)
 for t, img in tiles:
     if t['file'] in touched:
-        img.save('public/' + t['file'], 'JPEG', quality=88, optimize=True, progressive=True)
+        img.save(USCITA + t['file'], 'JPEG', quality=88, optimize=True, progressive=True)
     else:
-        shutil.copy2(ORIG + os.path.basename(t['file']), 'public/' + t['file'])
+        shutil.copy2(ORIG + os.path.basename(t['file']), USCITA + t['file'])
 print('disegnati:', counts, '· immagini modificate:', len(touched), 'su', len(tiles))
 print('villette disegnate per lotto:', built_houses)

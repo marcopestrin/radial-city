@@ -34,10 +34,7 @@ export default function BusPanel({ visible, onToggleVisible, lines, hiddenLines,
               <span className="bus-badge" style={{ background: line.color }} aria-hidden="true">
                 {line.short}
               </span>
-              <span className="row-label">
-                {line.name}
-                <small>{line.description}</small>
-              </span>
+              <span className="row-label">{line.name}</span>
               <span className="row-count">
                 {formatNumber(Math.round(line.lengthM / 100) / 10)} km · {line.stops.length} fermate
               </span>

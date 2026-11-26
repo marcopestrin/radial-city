@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import type { AreaHighlight, LayerVisibility, MapData } from '../types';
 import type { ViewportState } from '../hooks/useViewport';
@@ -12,6 +12,7 @@ import PlaceLayer from './layers/PlaceLayer';
 import HighlightLayer from './layers/HighlightLayer';
 import type { Selection } from './layers/HighlightLayer';
 import ActivityLabelLayer from './layers/ActivityLabelLayer';
+import FigureLabelLayer from './layers/FigureLabelLayer';
 import BusLayer from './layers/BusLayer';
 
 interface MapViewProps {
@@ -32,6 +33,9 @@ interface MapViewProps {
   /** Clic o tocco sulla mappa fuori da ogni luogo. */
   onClickEmpty: () => void;
 }
+
+/** Da questo zoom si vedono i contorni dei nuovi edifici (public/data/perimetri.json); quelli delle attività da `world.minZoom.activities`. */
+const FOOTPRINT_MIN_SCALE = 0.35;
 
 /** Oltre questo spostamento (in pixel) un clic diventa un trascinamento. */
 const CLICK_TOLERANCE_PX = 6;
@@ -80,12 +84,26 @@ export default function MapView(props: MapViewProps) {
   };
 
   const showStreets = layers.streetNames && view.scale >= world.minZoom.streets;
+  const showFigures = layers.heightLabels || layers.residentLabels || layers.jobLabels;
+  const figureKinds = useMemo(
+    () => ({ height: layers.heightLabels, residents: layers.residentLabels, jobs: layers.jobLabels }),
+    [layers.heightLabels, layers.residentLabels, layers.jobLabels],
+  );
   const showLotNumbers = layers.lotNumbers && view.scale >= world.minZoom.lotNumbers;
+  // i perimetri si mostrano e si possono scegliere con il mouse solo da questo zoom: più lontano resta l'edificio intero
+  const mapClass = [
+    'map',
+    dragging && 'is-dragging',
+    layers.activityOutlines && view.scale >= FOOTPRINT_MIN_SCALE && 'show-footprints',
+    layers.activityOutlines && view.scale >= world.minZoom.activities && 'show-activities',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <svg
       ref={svgRef}
-      className={dragging ? 'map is-dragging' : 'map'}
+      className={mapClass}
       xmlns="http://www.w3.org/2000/svg"
       textRendering="geometricPrecision"
       role="img"
@@ -106,6 +124,9 @@ export default function MapView(props: MapViewProps) {
         <PlaceLayer places={data.places} categoryById={data.categoryById} />
         {layers.busLines && <BusLayer bus={data.bus} scale={view.scale} hiddenLines={hiddenBusLines} />}
         {layers.activityLabels && <ActivityLabelLayer places={data.places} categoryById={data.categoryById} scale={view.scale} />}
+        {showFigures && (
+          <FigureLabelLayer places={data.places} buildings={data.censusBuildingByPlace} kinds={figureKinds} scale={view.scale} />
+        )}
       </g>
     </svg>
   );

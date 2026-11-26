@@ -1,3 +1,5 @@
 node_modules/
 dist/
 backup/
+tools/.centro_disposizione.json
+tools/__pycache__/

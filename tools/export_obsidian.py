@@ -31,7 +31,7 @@ quarters = json.load(open('public/data/quarters.json', encoding='utf-8'))
 categories = {c['id']: c['label'] for c in json.load(open('public/data/categories.json', encoding='utf-8'))}
 bus = json.load(open('public/data/bus.json', encoding='utf-8'))
 from lavoratori import assign_all, centre_floors
-W = assign_all(places)                               # lavoratori, piani e settore stimati (tools/lavoratori.py)
+W = assign_all(places)                               # lavoratori e piani stimati (tools/lavoratori.py)
 LOT_FLOORS, PLACE_FLOORS = centre_floors(lots, places, W)
 for l in lots:
     if l['number'] in LOT_FLOORS:
@@ -114,7 +114,6 @@ corti_ratio = sum(l['population'] for l in corti) / max(1, sum(l['homes'] for l 
 def lot_info(l):
     ps = places_by_lot.get(l['number'], [])
     workers = sum(W[p['id']][0] for p in ps)
-    public = sum(W[p['id']][0] for p in ps if W[p['id']][2] == 'pubblico')
     by_cat = collections.Counter()
     for p in ps:
         by_cat[p['category']] += max(W[p['id']][0], 1)
@@ -135,7 +134,7 @@ def lot_info(l):
         tags.append('senza-destinazione')
     if stops_near.get(l['number']):
         tags.append('servito-autobus')
-    return dict(places=ps, workers=workers, public=public, use=use, tags=tags, by_cat=by_cat)
+    return dict(places=ps, workers=workers, use=use, tags=tags, by_cat=by_cat)
 
 
 infos = {l['number']: lot_info(l) for l in lots}
@@ -170,7 +169,7 @@ for l in lots:
     fm = [
         '---', MARK, 'tipo: lotto', f'numero: {n}', f'quartiere: {yaml_str(quarter_link(q))}', f'uso: {yaml_str(info["use"])}',
         f'superficie_m2: {round(area)}', f'abitanti: {l["population"]}', f'edifici_residenziali: {l["homes"]}',
-        f'edifici_con_funzione: {len(info["places"])}', f'lavoratori: {info["workers"]}', f'lavoratori_pubblici: {info["public"]}',
+        f'edifici_con_funzione: {len(info["places"])}', f'lavoratori: {info["workers"]}',
     ]
     if l.get('floors'):
         fm.append(f'piani_palazzi: {l["floors"]}')
@@ -183,16 +182,16 @@ for l in lots:
             f'- **Destinazione d\'uso:** {info["use"]}',
             f'- **Superficie:** {fmt(area)} m²',
             f'- **Abitanti:** {fmt(l["population"])} · **edifici residenziali:** {l["homes"]}',
-            f'- **Lavoratori (stima):** {fmt(info["workers"])}' + (f', di cui {fmt(info["public"])} dipendenti pubblici' if info['public'] else '')]
+            f'- **Lavoratori (stima):** {fmt(info["workers"])}']
     if l.get('floors'):
         body.append(f'- **Piani dei palazzi abitati (stima):** {l["floors"]}')
     if info['places']:
-        body += ['', '## Edifici', '', '| Edificio | Funzione | Piani | Lavoratori | Settore |', '|---|---|---:|---:|---|']
+        body += ['', '## Edifici', '', '| Edificio | Funzione | Piani | Lavoratori |', '|---|---|---:|---:|']
         for p in sorted(info['places'], key=lambda p: -W[p['id']][0]):
-            w, fl, sec = W[p['id']]
+            w, fl = W[p['id']]
             fl = p.get('floors', fl)
             name = p['name']
-            body.append(f'| {name} | {categories[p["category"]]} | {fl} | {fmt(w)} | {sec} |')
+            body.append(f'| {name} | {categories[p["category"]]} | {fl} | {fmt(w)} |')
     if stops_near.get(n):
         body += ['', '## Autobus entro 400 m', '']
         for s in stops_near[n]:
@@ -210,17 +209,16 @@ for qd in quarters:
     q = qd['name']
     ls = sorted((l for l in lots if l['quarter'] == q), key=lambda l: l['number'])
     workers = sum(infos[l['number']]['workers'] for l in ls)
-    public = sum(infos[l['number']]['public'] for l in ls)
     pop = sum(l['population'] for l in ls)
     nplaces = sum(len(infos[l['number']]['places']) for l in ls)
     empty = [l for l in ls if infos[l['number']]['use'].startswith('Senza')]
-    qstats[q] = dict(pop=pop, workers=workers, public=public, lots=len(ls), places=nplaces, rural=qd['rural'])
+    qstats[q] = dict(pop=pop, workers=workers, lots=len(ls), places=nplaces, rural=qd['rural'])
     fm = ['---', MARK, 'tipo: quartiere', f'nome: {yaml_str(q)}', f'abitanti: {pop}', f'lavoratori: {workers}',
-          f'lavoratori_pubblici: {public}', f'lotti: {len(ls)}', f'edifici_residenziali: {sum(l["homes"] for l in ls)}',
+          f'lotti: {len(ls)}', f'edifici_residenziali: {sum(l["homes"] for l in ls)}',
           f'edifici_con_funzione: {nplaces}', f'lotti_senza_destinazione: {len(empty)}', f'rurale: {"true" if qd["rural"] else "false"}',
           f'tags: [citta-radiale, quartiere, quartiere/{slug(q)}' + (', campagna' if qd['rural'] else '') + ']', '---']
     ratio = f'{workers / pop:.2f}'.replace('.', ',') if pop else '—'
-    body = [f'# {q}', '', f'- **Abitanti:** {fmt(pop)}', f'- **Lavoratori (stima):** {fmt(workers)} (dipendenti pubblici {fmt(public)})',
+    body = [f'# {q}', '', f'- **Abitanti:** {fmt(pop)}', f'- **Lavoratori (stima):** {fmt(workers)}',
             f'- **Posti di lavoro per abitante:** {ratio}', f'- **Lotti:** {len(ls)} · **edifici con una funzione:** {nplaces}',
             f'- Torna a {note_link("Città radiale")}', '', '## Lotti', '',
             '| Lotto | Destinazione d\'uso | Abitanti | Lavoratori | Superficie m² |', '|---|---|---:|---:|---:|']
@@ -234,19 +232,18 @@ for qd in quarters:
 # ------------------------------------------------------------------ nota principale
 tot_pop = sum(l['population'] for l in lots)
 tot_jobs = sum(w for w, _, _ in W.values())                         # anche i 4 luoghi fuori dai lotti
-tot_public = sum(w for w, _, s in W.values() if s == 'pubblico')
 cat_count = collections.Counter(p['category'] for p in places)
 cat_workers = collections.Counter()
 for p in places:
     cat_workers[p['category']] += W[p['id']][0]
 empty_now = [l for l in lots if infos[l['number']]['use'].startswith('Senza')]
-fm = ['---', MARK, 'tipo: città', f'abitanti: {tot_pop}', f'lavoratori: {tot_jobs}', f'lavoratori_pubblici: {tot_public}',
+fm = ['---', MARK, 'tipo: città', f'abitanti: {tot_pop}', f'lavoratori: {tot_jobs}',
       f'quartieri: {len(quarters)}', f'lotti: {len(lots)}', f'edifici_con_funzione: {len(places)}', f'aggiornato: {DATE}',
       'tags: [citta-radiale]', '---']
 body = ['# Città radiale', '',
         f'Mappa di 7 × 7 km. Dati del progetto `citta-radiale-react`, aggiornati al {DATE}.', '',
         f'- **Abitanti:** {fmt(tot_pop)}',
-        f'- **Posti di lavoro (stima):** {fmt(tot_jobs)}, di cui {fmt(tot_public)} dipendenti pubblici',
+        f'- **Posti di lavoro (stima):** {fmt(tot_jobs)}',
         f'- **Posti di lavoro per abitante:** {tot_jobs / tot_pop:.2f}'.replace('.', ','),
         f'- **Abitanti occupati (stima, {round(EMPLOYMENT_RATE * 100)}%):** {fmt(tot_pop * EMPLOYMENT_RATE)}',
         f'- **Lotti:** {len(lots)} · senza destinazione d\'uso: {len(empty_now)}',
@@ -320,7 +317,6 @@ body = ['# Come sono stimati i lavoratori', '',
         'scuole 80, industria 70, logistica 120, data center 250.',
         '- Silos, serbatoi, tettoie, pensiline e campi sportivi non hanno addetti fissi; stadio, vigili del fuoco, depuratori hanno un numero fisso.',
         '- I complessi (campus, ospedale, fiera) contengono altri edifici: si conta solo la parte libera, e un quarto di quella.',
-        '- **Dipendenti pubblici**: sanità, scuole, università, uffici statali e comunali, polizia, vigili del fuoco, dogana, uffici aeroportuali.', '',
         'Sono valori medi da manuale: il totale può variare di ±30% cambiando le ipotesi.']
 write('Come sono stimati i lavoratori.md', '\n'.join(fm + [''] + body) + '\n')
 written += 1

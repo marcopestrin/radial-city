@@ -1,8 +1,8 @@
-import { forwardRef, memo, useMemo, useState } from 'react';
-import type { AreaHighlight, CategoryId, LayerVisibility, MapData } from '../../types';
-import LayerPanel, { Toggle } from './LayerPanel';
+import { forwardRef, memo, useState } from 'react';
+import type { AreaHighlight, LayerVisibility, MapData } from '../../types';
+import LayerPanel from './LayerPanel';
 import BusPanel from './BusPanel';
-import Directory from './Directory';
+import BuildingsPanel from './BuildingsPanel';
 import type { RevealRequest } from './Directory';
 
 interface SidebarProps {
@@ -22,19 +22,13 @@ interface SidebarProps {
 }
 
 /**
- * La legenda a sinistra: titolo, livelli e colori, linee autobus, interruttore delle etichette delle attività,
- * elenco degli edifici con la ricerca. Si può chiudere per lasciare tutta la finestra alla mappa.
+ * La legenda a sinistra: titolo, livelli e colori, linee autobus, e l'accordion
+ * degli edifici (censimento ed elenco per quartiere e lotto). Si può chiudere per lasciare tutta la finestra alla mappa.
  */
 const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(props, ref) {
   const { data, open, onOpenChange, layers, onToggleLayer, scale } = props;
-  const [layersOpen, setLayersOpen] = useState(false);
   const [busOpen, setBusOpen] = useState(false);
-
-  const placeCountByCategory = useMemo(() => {
-    const counts = {} as Record<CategoryId, number>;
-    for (const place of data.places) counts[place.category] = (counts[place.category] ?? 0) + 1;
-    return counts;
-  }, [data]);
+  const [buildingsOpen, setBuildingsOpen] = useState(true);
 
   return (
     <aside ref={ref} className={open ? 'sidebar card' : 'sidebar card is-closed'}>
@@ -57,16 +51,7 @@ const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(props, re
 
       {/* il contenuto resta montato anche a legenda chiusa: ricerca e gruppi aperti non si perdono */}
       <div className="sidebar-body" id="sidebar-body" hidden={!open}>
-        <LayerPanel
-          layers={layers}
-          onToggle={onToggleLayer}
-          scale={scale}
-          minZoom={data.world.minZoom}
-          categories={data.categories}
-          placeCountByCategory={placeCountByCategory}
-          open={layersOpen}
-          onOpenChange={setLayersOpen}
-        />
+        <LayerPanel layers={layers} onToggle={onToggleLayer} scale={scale} minZoom={data.world.minZoom} />
         <BusPanel
           visible={layers.busLines}
           onToggleVisible={() => onToggleLayer('busLines')}
@@ -76,13 +61,10 @@ const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(props, re
           open={busOpen}
           onOpenChange={setBusOpen}
         />
-        <div className="activity-toggle">
-          <Toggle label="Etichette delle attività sulla mappa" checked={layers.activityLabels} onChange={() => onToggleLayer('activityLabels')} />
-          <p className="caption">Scrive su ogni edificio la sua funzione, come nell'elenco; le scritte compaiono man mano che ingrandisci.</p>
-        </div>
-        <Directory
+        <BuildingsPanel
           data={data}
-          categoryById={data.categoryById}
+          open={buildingsOpen}
+          onOpenChange={setBuildingsOpen}
           selectedPlaceId={props.selectedPlaceId}
           reveal={props.reveal}
           onHoverArea={props.onHoverArea}
